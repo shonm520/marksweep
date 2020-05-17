@@ -85,8 +85,7 @@ void sweep(VM* vm)
 			vm->numObjects--;
 		}
 		else {
-			/* This object was reached, so unmark it (for the next GC) and move on to
-			 the next. */
+			/* This object was reached, so unmark it (for the next GC) and move on to the next. */
 			(*object)->marked = 0;
 			object = &(*object)->next;
 		}
@@ -101,21 +100,21 @@ void gc(VM* vm) {
 
 	vm->maxObjects = vm->numObjects * 2;
 
-	printf("Collected %d objects, %d remaining.\n", numObjects - vm->numObjects,
-		vm->numObjects);
+	printf("Collected %d objects, %d remaining.\n", numObjects - vm->numObjects, vm->numObjects);
 }
 
 
 void freeVM(VM *vm) {
 	vm->stackSize = 0;
 	gc(vm);
+
 	free(vm);
 }
 
 
 
 Object* newObject(VM* vm, void* data) {
-	if (vm->numObjects == vm->maxObjects) {
+	if (vm->numObjects >= vm->maxObjects) {
 		gc(vm);
 	}
 
@@ -129,62 +128,90 @@ Object* newObject(VM* vm, void* data) {
 	return object;
 }
 
-void preCallFunc(VM* vm, Object* obj) {
-	pushToVm(vm, obj);
-}
-
-void passPararm(VM* vm) {
-	popFromVm(vm);
-}
-
-void retObject(VM* vm, Object* obj) {
-	pushToVm(vm, obj);
-}
 
 
-void callFunc(VM* vm, Object* obj) {
-	preCallFunc(vm, obj);
-	//doSomething();
-	passPararm(vm);
+
+typedef void (*F)(VM* vm, Object* obj);
+
+void callFunc(F f, VM* vm, Object* obj) {
+	if (obj) {
+		f(vm, obj);
+	}
 }
 
 
 
-void callRetFunc(VM* vm, Object* obj) {
-	preCallFunc(vm, obj);
-	//doSomething();
-	passPararm(vm);
-	retObject(vm, obj);
+
+void addIntObj(VM* vm, Object* obj) {
+	int* p = (int*)obj->data;
+	(*p)++;
+	printf("obj is:%d\n\n", *((int*)obj->data));
 }
 
-void setObjectNull(Object* object) {
 
-}
-
-void test1() {
+void test_call_func() {
 	VM* vm = newVM();
-	int* ip = (int*)malloc(sizeof(int));
-	*ip = 123;
-	Object* obj1 = newObject(vm, ip);
-	double* dp = (double*)malloc(sizeof(double));
-	*dp = 1.23;
-	Object* obj2 = newObject(vm, dp);
+	int* p = (int*)malloc(sizeof(int));
+	*p = 111;
+
+	{           
+		Object* obj = newObject(vm, p);
+		pushToVm(vm, obj);   //模拟lua，进入一段代码时先要把对象压入栈
+
+		callFunc(addIntObj, vm, obj);
+
+		gc(vm);              //还在栈中，此时没有回收
+
+		callFunc(addIntObj, vm, obj);
+
+		popFromVm(vm);       //退出代码作用域时把对象弹出栈
+	}
+
+	gc(vm);                  //不在栈中，标记不到，有回收
 	freeVM(vm);
 }
 
+struct NodeB;
+struct NodeA {
+	int a;
+	NodeB* pNb;
+};
 
-void test2() {
+struct NodeB {
+	int b;
+	NodeA* pNa;
+};
+
+
+void test_cycle_reference() {    //测试循环引用
+	NodeA* na = (NodeA*)malloc(sizeof(NodeA));
+	na->a = 11;
+
+	NodeB* nb = (NodeB*)malloc(sizeof(NodeB));
+	nb->b = 22;
+
+	na->pNb = nb;
+	nb->pNa = na;
+
 	VM* vm = newVM();
-	int* p = (int*)malloc(sizeof(int));
-	*p = 123;
-	Object* obj = newObject(vm, p);
+	{
+		Object* obj1 = newObject(vm, na);
+		pushToVm(vm, obj1);
+		Object* obj2 = newObject(vm, nb);
+		pushToVm(vm, obj2);
+
+
+		popFromVm(vm);
+		popFromVm(vm);
+	}
 	gc(vm);
-	callFunc(vm, obj);
-	gc(vm);
+
 }
 
 
 int main(int argc, const char * argv[]) {
-	test2();
+	test_call_func();
+
+	test_cycle_reference();
 	return 0;
 }
